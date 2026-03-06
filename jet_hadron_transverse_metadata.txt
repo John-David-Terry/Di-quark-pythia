@@ -1,0 +1,27 @@
+Jet–hadron transverse observables (FIXED DEFINITION)
+====================================================
+
+IMPORTANT FIX:
+  The OLD definition k_in = k_out - q was REMOVED because it was UNPHYSICAL.
+  The k_out from PYTHIA status=23 is not kinematically consistent with LO DIS,
+  resulting in k_in having negative energy and being deeply spacelike (k^2 ~ -200 GeV^2).
+  This caused a spurious O(2 GeV) transverse momentum and artificial x-axis locking.
+
+  The plots now use the BENCHMARK COLLINEAR DEFINITION:
+    k_in_ref = x * P
+  where x is Bjorken x and P is the proton 4-vector in the LAB frame.
+  This has k^2 = x^2 * m_p^2 (physical, timelike) and positive energy.
+  In the Breit frame, k_in_ref has essentially ZERO transverse momentum.
+
+Hadron: target_leading_pion
+Frame: Breit
+Angle convention: 0_to_pi (0 = aligned, pi = back-to-back)
+
+Observable 1: angle between pT(collinear parton) and pT(hadron) [rad].
+Observable 2: |pT_jet + pT_h| [GeV] (vector sum, then magnitude).
+Observable 3: |pT_jet - pT_h| [GeV] (vector difference, then magnitude).
+
+Note: Since pT_jet ~ 0 with the collinear fix:
+  - Observable 2 ~ |pT_h|
+  - Observable 3 ~ |pT_h|
+  - The observables are now dominated by the hadron's transverse momentum.
