@@ -1,0 +1,36 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.eggs/
+*.egg-info/
+*.egg
+build/
+dist/
+
+# Generated data and outputs
+*.npy
+*.pdf
+pythia_finalstate_raw/
+four_observables_outputs/
+/plots/
+/New_plots/
+debug_*.txt
+debug_*.npy
+used_event_*.npy
+phi_*_centers.npy
+phi_*_hist.npy
+phi_*_density.npy
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
