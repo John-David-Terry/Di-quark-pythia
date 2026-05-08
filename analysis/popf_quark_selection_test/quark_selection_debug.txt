@@ -1,0 +1,18 @@
+Quark selection debug
+
+incoming quark index: 4
+incoming quark 4-vector: (px=-1.38778e-17, py=-3.46945e-18, pz=-3.11962, E=3.11962, m=0)
+
+struck quark index: 19
+struck quark 4-vector: (px=-3.70253, py=5.17742, pz=1.82827, E=6.6413, m=0.5)
+
+partner quark index: 22
+partner quark 4-vector: (px=0.546489, py=0.221193, pz=-23.6677, E=23.6773, m=0.33)
+
+final-state quarks (indices): [19, 22]
+final-state antiquarks (indices): [20, 21]
+
+ancestry chain (struck quark, backward): [19, 15, 10, 6, 3, 7, 12, 1]
+ancestry chain (partner quark, backward): [22, 2]
+
+has q' q̄' pair (final antiquark id == -partner_id): True

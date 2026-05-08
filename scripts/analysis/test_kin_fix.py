@@ -21,6 +21,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from diquark.paths import analysis_outputs_dir
+
+_ANALYSIS_DIR = analysis_outputs_dir()
+_ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
+
 from diquark.analyze_events_raw import (
     FLIP_Z_PTREL,
     PTREL_LABEL_OFF,
@@ -530,7 +535,7 @@ def main():
     ax.legend()
     
     plt.tight_layout()
-    out_path = _PROJECT_ROOT / "kin_fix_comparison.pdf"
+    out_path = _ANALYSIS_DIR / "kin_fix_comparison.pdf"
     plt.savefig(out_path)
     plt.close()
     print(f"Saved: {out_path}")

@@ -7,8 +7,9 @@ from pathlib import Path
 
 import numpy as np
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_ROOT = _PROJECT_ROOT / "pythia_finalstate_raw"
+from diquark.paths import pythia_finalstate_raw_dir
+
+DATA_ROOT = pythia_finalstate_raw_dir()
 
 
 def _flip_z(v, do_flip: bool):

@@ -25,6 +25,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from diquark.paths import analysis_outputs_dir
+
+_ANALYSIS_DIR = analysis_outputs_dir()
+_ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
+
 from diquark.analyze_events_raw import (
     Qmax_ptrel,
     Qmin_ptrel,
@@ -139,9 +144,9 @@ def main():
     density = hist.astype(float) / (used_events * bin_width)
 
     # Save arrays for further analysis
-    np.save(_PROJECT_ROOT / "phi_J_breit_centers.npy", centers)
-    np.save(_PROJECT_ROOT / "phi_J_breit_hist.npy", hist)
-    np.save(_PROJECT_ROOT / "phi_J_breit_density.npy", density)
+    np.save(_ANALYSIS_DIR / "phi_J_breit_centers.npy", centers)
+    np.save(_ANALYSIS_DIR / "phi_J_breit_hist.npy", hist)
+    np.save(_ANALYSIS_DIR / "phi_J_breit_density.npy", density)
 
     # Plot normalized distribution vs phi_J
     plt.rcParams.update(
@@ -168,7 +173,7 @@ def main():
     ax.legend(loc="best", fontsize=fontsize)
     ax.tick_params(direction="in", labelsize=fontsize)
     plt.tight_layout()
-    outname = _PROJECT_ROOT / "phi_J_breit_ISRFSR_ON.pdf"
+    outname = _ANALYSIS_DIR / "phi_J_breit_ISRFSR_ON.pdf"
     plt.savefig(outname, format="pdf")
     plt.close(fig)
     print(f"Saved: {outname}")

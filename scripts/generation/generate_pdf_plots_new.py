@@ -17,6 +17,14 @@ _SRC = _PROJECT_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from diquark.paths import analysis_outputs_dir  # noqa: E402
+
+_ANALYSIS_DIR = analysis_outputs_dir()
+_ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Lab-frame η_h: shaded “EIC coverage” bands (must match analyze_events_raw.EIC_REGIONS).
+EIC_REGIONS_ETA = [(2.0, 3.5), (4.6, 5.9), (6.0, 8.0)]
+
 import argparse
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib')
@@ -225,8 +233,8 @@ def run_eta_analysis_and_plot():
     avg_Q = np.mean(Q_list) if len(Q_list) > 0 else 0.0
     fig, ax = plt.subplots()
     ax.hist(eta_list, bins=80, range=(2, 8), histtype='step', color='k', density=True, linewidth=1.5)
-    ax.axvspan(4.6, 5.9, alpha=0.18, color='C0', zorder=0)
-    ax.axvspan(6.0, 8.0, alpha=0.18, color='C0', zorder=0)
+    for eta_lo, eta_hi in EIC_REGIONS_ETA:
+        ax.axvspan(eta_lo, eta_hi, alpha=0.18, color='C0', zorder=0)
     ax.set_xlabel(r"$\eta_{h}$", fontsize=fontsize)
     ax.set_ylabel(r"$\dfrac{1}{\sigma} \dfrac{d\sigma}{d\eta_h}$", fontsize=fontsize)
     ax.grid(False)
@@ -238,7 +246,7 @@ def run_eta_analysis_and_plot():
         ax.text(0.05, 0.87, text_str, transform=ax.transAxes,
                 fontsize=fontsize, verticalalignment='top', horizontalalignment='left')
     plt.subplots_adjust(left=0.15, bottom=0.15, right=0.95, top=0.95)
-    plt.savefig(_PROJECT_ROOT / "eta_hadron_EIC_hardware_QCD_regions.pdf", format="pdf")
+    plt.savefig(_ANALYSIS_DIR / "eta_hadron_EIC_hardware_QCD_regions.pdf", format="pdf")
     plt.close(fig)
     print("Saved: eta_hadron_EIC_hardware_QCD_regions.pdf")
 
@@ -442,12 +450,12 @@ def _run_pTrel_loop(pythia, n_events, Qmin, Qmax, xmin, xmax, out_pTrel, out_x, 
 
     if label and DEBUG_PTREL_OLD and used_event_indices:
         used_event_indices = np.asarray(used_event_indices, dtype=np.int64)
-        np.save(_PROJECT_ROOT / f"used_event_indices_{label}_OLD.npy", used_event_indices)
+        np.save(_ANALYSIS_DIR / f"used_event_indices_{label}_OLD.npy", used_event_indices)
         used_event_triplets = np.asarray(used_event_triplets, dtype=np.int64)
-        np.save(_PROJECT_ROOT / f"used_event_triplets_{label}_OLD.npy", used_event_triplets)
+        np.save(_ANALYSIS_DIR / f"used_event_triplets_{label}_OLD.npy", used_event_triplets)
         if debug_records:
             debug_records = np.array(debug_records, dtype=np.float64)
-            np.save(_PROJECT_ROOT / f"debug_records_{label}_OLD.npy", debug_records)
+            np.save(_ANALYSIS_DIR / f"debug_records_{label}_OLD.npy", debug_records)
 
 
 def run_ptrel_from_cached_shards(label: str):
@@ -578,11 +586,11 @@ def run_ptrel_from_cached_shards(label: str):
 
     used_event_ids = np.asarray(used_event_ids, dtype=np.int64)
     used_event_triplets = np.asarray(used_event_triplets, dtype=np.int64)
-    np.save(_PROJECT_ROOT / f"used_event_ids_{label}_OLD.npy", used_event_ids)
-    np.save(_PROJECT_ROOT / f"used_event_triplets_{label}_OLD.npy", used_event_triplets)
+    np.save(_ANALYSIS_DIR / f"used_event_ids_{label}_OLD.npy", used_event_ids)
+    np.save(_ANALYSIS_DIR / f"used_event_triplets_{label}_OLD.npy", used_event_triplets)
     if debug_records:
         debug_records = np.array(debug_records, dtype=np.float64)
-        np.save(_PROJECT_ROOT / f"debug_records_{label}_OLD.npy", debug_records)
+        np.save(_ANALYSIS_DIR / f"debug_records_{label}_OLD.npy", debug_records)
     print(f"[{label}] cached mode: {processed} events -> used_event_ids_*_OLD.npy, debug_records_*_OLD.npy")
 
 
@@ -720,7 +728,7 @@ def run_pTrel_comparison_and_plot():
         ax.text(0.98, 0.45, text_str, transform=ax.transAxes,
                 fontsize=fontsize, verticalalignment='top', horizontalalignment='right')
     plt.subplots_adjust(left=0.15, bottom=0.15, right=0.95, top=0.95)
-    plt.savefig(_PROJECT_ROOT / "pTrel_target_pion_wrt_remnant_axis_2D_fit_gaussian_comparison.pdf", format="pdf")
+    plt.savefig(_ANALYSIS_DIR / "pTrel_target_pion_wrt_remnant_axis_2D_fit_gaussian_comparison.pdf", format="pdf")
     plt.close(fig)
     print("Saved: pTrel_target_pion_wrt_remnant_axis_2D_fit_gaussian_comparison.pdf")
 

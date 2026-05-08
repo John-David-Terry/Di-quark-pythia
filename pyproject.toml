@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 pythia = ["pythia8"]
+parquet = ["pyarrow"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

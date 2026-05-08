@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 Analyze raw PYTHIA shards (no PYTHIA). Reproduces:
-  1. eta_hadron_EIC_hardware_QCD_regions.pdf
-  2. pTrel_target_pion_wrt_remnant_axis_2D_fit_gaussian_comparison.pdf
-Uses same selection, binning, and fitting as generate_pdf_plots_new.py.
+  1. eta_hadron_<e>x<p>_xQ_regions_3x2.pdf for beams (5x41), (9x41), (9x100), (9x275)
+  2. eta_hadron_EIC_hardware_QCD_regions.pdf (legacy single-panel, ETA_ON_CRON shards)
+  3. eta_hadron_xQ_regions_summary.{json,csv}
+  4. pTrel_target_pion_wrt_remnant_axis_2D_fit_gaussian_comparison.pdf
+Uses same selection, binning, and fitting as generate_pdf_plots_new.py where applicable.
 """
 import hashlib
 import json
@@ -17,6 +19,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib as mpl
 from pathlib import Path
+from typing import Optional
+
+from diquark.paths import analysis_outputs_dir, pythia_finalstate_raw_dir
 
 # ---------------------------------------------------------------------------
 # Plotting style (verbatim from generate_pdf_plots_new.py)
@@ -30,11 +35,13 @@ mpl.rcParams.update({
 
 # Labels for raw shards
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_ROOT = _PROJECT_ROOT / "pythia_finalstate_raw"
+DATA_ROOT = pythia_finalstate_raw_dir()
+_ANALYSIS_DIR = analysis_outputs_dir()
+_ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Output filenames (relative to project root)
-ETA_PDF = _PROJECT_ROOT / "eta_hadron_EIC_hardware_QCD_regions.pdf"
-PTREL_PDF = _PROJECT_ROOT / "pTrel_target_pion_wrt_remnant_axis_2D_fit_gaussian_comparison.pdf"
+# Output filenames (under DIQUARK_DATA_ROOT/.../outputs/analysis)
+ETA_PDF = _ANALYSIS_DIR / "eta_hadron_EIC_hardware_QCD_regions.pdf"
+PTREL_PDF = _ANALYSIS_DIR / "pTrel_target_pion_wrt_remnant_axis_2D_fit_gaussian_comparison.pdf"
 ETA_LABEL = "ETA_ON_CRON"
 PTREL_LABEL_OFF = "ISRFSR_OFF"
 PTREL_LABEL_ON = "ISRFSR_ON"
@@ -42,7 +49,8 @@ PTREL_LABEL_ON = "ISRFSR_ON"
 # Binning (same as original)
 ETA_BINS = 80
 ETA_RANGE = (2.0, 8.0)
-EIC_REGIONS = [(4.6, 5.9), (6.0, 8.0)]
+# Pseudorapidity intervals shaded as “EIC coverage” on η_h plots (lab-frame η).
+EIC_REGIONS = [(2.0, 3.5), (4.6, 5.9), (6.0, 8.0)]
 PTREL_BINS = 60
 PTREL_RANGE = (0.01, 2.0)
 pTmax_fit = 1.0
@@ -192,6 +200,406 @@ def build_LT(Ee, Ep, qmu, x, y, qT, phiq, S):
     return LT
 
 
+def compute_x_Q_eta_one_event(e_in_ev, p_in_ev, e_sc_ev, offsets, pid, p4_arr, ie, flip_z_eta: bool):
+    """
+    Inclusive DIS: Q = sqrt(Q²) in GeV from virtual photon four-momentum (not sqrt of PDG Q² notation mix-up).
+    Returns (x, Q, eta_h_lab) after Breit-like frame selection of leading forward hadron, or None.
+    """
+    e_in_ev = flip_z(np.asarray(e_in_ev, dtype=float), flip_z_eta)
+    p_in_ev = flip_z(np.asarray(p_in_ev, dtype=float), flip_z_eta)
+    e_sc_ev = flip_z(np.asarray(e_sc_ev, dtype=float), flip_z_eta)
+    Ep = float(p_in_ev[0])
+    Ee = float(e_in_ev[0])
+    q0 = e_in_ev[0] - e_sc_ev[0]
+    q1 = e_in_ev[1] - e_sc_ev[1]
+    q2 = e_in_ev[2] - e_sc_ev[2]
+    q3 = e_in_ev[3] - e_sc_ev[3]
+    qmu = np.array([q0, q1, q2, q3])
+    Q2 = -(q0 * q0 - q1 * q1 - q2 * q2 - q3 * q3)
+    if Q2 <= 0:
+        return None
+    Q = float(np.sqrt(Q2))
+    qT = float(np.hypot(q1, q2))
+    p_dot_q = p_in_ev[0] * q0 - p_in_ev[1] * q1 - p_in_ev[2] * q2 - p_in_ev[3] * q3
+    if p_dot_q == 0:
+        return None
+    x = Q2 / (2.0 * p_dot_q)
+    phiq = float(np.arctan2(q2, q1))
+    S = 4.0 * Ee * Ep
+    y = Q2 / (S * x)
+    LT = build_LT(Ee, Ep, qmu, x, y, qT, phiq, S)
+    if LT is None:
+        return None
+
+    start = int(offsets[ie])
+    end = int(offsets[ie + 1])
+    best_E = -1.0
+    best_lab = None
+    for j in range(start, end):
+        this_pid = int(pid[j])
+        if not is_hadron(this_pid):
+            continue
+        lab = flip_z(np.asarray(p4_arr[j], dtype=float), flip_z_eta)
+        trf = LT @ lab
+        E_, px_, py_, pz_ = trf
+        if pz_ <= 0:
+            continue
+        if E_ > best_E:
+            best_E = E_
+            best_lab = lab
+    if best_lab is None:
+        return None
+    _E_lab, px_lab, py_lab, pz_lab = best_lab
+    p_mag = np.sqrt(px_lab * px_lab + py_lab * py_lab + pz_lab * pz_lab)
+    if p_mag <= 0:
+        return None
+    den = max(p_mag - pz_lab, 1e-12)
+    num = max(p_mag + pz_lab, 1e-12)
+    eta = float(0.5 * np.log(num / den))
+    return float(x), float(Q), float(eta)
+
+
+def classify_x_bin_index(x):
+    """Sea: 0.001 < x < 0.05; Valence: x > 0.05."""
+    if 0.001 < x < 0.05:
+        return 0
+    if x > 0.05:
+        return 1
+    return None
+
+
+def classify_Q_bin_index(Q):
+    """Q in GeV; strict inequalities for bounded bins."""
+    if 2.0 < Q < 5.0:
+        return 0
+    if 5.0 < Q < 10.0:
+        return 1
+    if Q > 10.0:
+        return 2
+    return None
+
+
+# Beam configs for eta vs (x,Q) grids (must match LABEL_CONFIGS in generate_events_raw.py).
+BEAM_CONFIGS_ETA_XQ = [(5, 41), (9, 41), (9, 100), (9, 275)]
+ETA_XQ_LABEL_BY_BEAM = {
+    (5, 41): "ETA_XQ_5x41",
+    (9, 41): "ETA_XQ_9x41",
+    (9, 100): "ETA_XQ_9x100",
+    (9, 275): "ETA_XQ_9x275",
+}
+
+X_REGION_SPECS = [
+    ("Sea", 0.001, 0.05),
+    ("Valence", 0.05, None),
+]
+Q_REGION_SPECS = [
+    ("2 < Q < 5 GeV", 2.0, 5.0),
+    ("5 < Q < 10 GeV", 5.0, 10.0),
+    ("Q > 10 GeV", 10.0, None),
+]
+
+ETA_XQ_SUMMARY_JSON = _ANALYSIS_DIR / "eta_hadron_xQ_regions_summary.json"
+ETA_XQ_SUMMARY_CSV = _ANALYSIS_DIR / "eta_hadron_xQ_regions_summary.csv"
+
+
+def _beam_pdf_name(Ee: float, Ep: float) -> str:
+    return _ANALYSIS_DIR / f"eta_hadron_{int(Ee)}x{int(Ep)}_xQ_regions_3x2.pdf"
+
+
+def _verify_shard_beams(shard_dir: Path, Ee_nom: float, Ep_nom: float, tol: float = 0.02) -> None:
+    mp = shard_dir / "meta.json"
+    if not mp.exists():
+        return
+    meta = json.loads(mp.read_text())
+    Ee = float(meta.get("E_e", -1))
+    Ep = float(meta.get("E_p", -1))
+    if abs(Ee - Ee_nom) > tol or abs(Ep - Ep_nom) > tol:
+        raise RuntimeError(
+            f"Shard {shard_dir} meta beams E_e={Ee}, E_p={Ep} do not match nominal "
+            f"E_e={Ee_nom}, E_p={Ep_nom} (tol={tol}). Wrong label directory?"
+        )
+
+
+def make_eta_hadron_xQ_grid_for_beam(
+    Ee_nom: float,
+    Ep_nom: float,
+    shard_label: str,
+    out_pdf: Path,
+    flip_z_eta: bool = False,
+    max_events: Optional[int] = None,
+):
+    """
+    One 3x2 figure: rows = Q bins, cols = x bins (sea | valence).
+    Normalization per panel: (counts in eta bin) / (sum of counts in panel * bin width), ∫dη = 1.
+    """
+    shards = list_shards(shard_label)
+    if not shards:
+        print(f"[eta_xq] No shards for label {shard_label}. Generate with:\n"
+              f"  python scripts/generation/generate_events_raw.py --labels {shard_label}")
+        return None
+
+    _verify_shard_beams(shards[0], Ee_nom, Ep_nom)
+
+    edges = np.linspace(ETA_RANGE[0], ETA_RANGE[1], ETA_BINS + 1)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    binw = np.diff(edges)
+
+    counts = np.zeros((3, 2, ETA_BINS), dtype=np.int64)
+    n_events_cell = np.zeros((3, 2), dtype=np.int64)
+    n_eta_in_window_cell = np.zeros((3, 2), dtype=np.int64)
+
+    processed = 0
+    for shard_idx, shard_path in enumerate(shards):
+        if max_events is not None and processed >= max_events:
+            break
+        data = load_shard(shard_path)
+        e_in = data["event_e_in"]
+        p_in = data["event_p_in"]
+        e_sc = data["event_e_sc"]
+        offsets = data["offsets"]
+        pid = data["pid"]
+        p4_arr = data["p4"]
+        Ne = e_in.shape[0]
+
+        for ie in range(Ne):
+            if max_events is not None and processed >= max_events:
+                break
+            res = compute_x_Q_eta_one_event(
+                e_in[ie], p_in[ie], e_sc[ie], offsets, pid, p4_arr, ie, flip_z_eta
+            )
+            if res is None:
+                continue
+            x, Q, eta = res
+            ix = classify_x_bin_index(x)
+            iq = classify_Q_bin_index(Q)
+            if ix is None or iq is None:
+                continue
+
+            # Beam sanity (per-event lab energies must match nominal for this shard label)
+            e_in_ev = flip_z(np.asarray(e_in[ie], dtype=float), flip_z_eta)
+            p_in_ev = flip_z(np.asarray(p_in[ie], dtype=float), flip_z_eta)
+            if abs(float(e_in_ev[0]) - Ee_nom) > 0.05 or abs(float(p_in_ev[0]) - Ep_nom) > 0.05:
+                raise RuntimeError(
+                    f"Event beam energies mismatch label {shard_label}: "
+                    f"Ee={e_in_ev[0]}, Ep={p_in_ev[0]} vs nominal ({Ee_nom}, {Ep_nom})"
+                )
+
+            n_events_cell[iq, ix] += 1
+            processed += 1
+            if ETA_RANGE[0] <= eta < ETA_RANGE[1]:
+                n_eta_in_window_cell[iq, ix] += 1
+                bin_idx = np.searchsorted(edges, eta, side="right") - 1
+                if 0 <= bin_idx < ETA_BINS:
+                    counts[iq, ix, bin_idx] += 1
+
+        print(f"[eta_xq] {shard_label} shard {shard_idx}: {processed} classified events so far")
+        if max_events is not None and processed >= max_events:
+            break
+
+    # Shared y scale within figure
+    ymax = 0.0
+    densities = np.zeros_like(counts, dtype=float)
+    for iq in range(3):
+        for ix in range(2):
+            tc = float(counts[iq, ix].sum())
+            if tc > 0:
+                densities[iq, ix] = counts[iq, ix] / (tc * binw)
+                ymax = max(ymax, float(np.max(densities[iq, ix])))
+
+    if ymax <= 0:
+        ymax = 1.0
+
+    fontsize = 12
+    mpl.rcParams["font.size"] = fontsize
+    fig, axes = plt.subplots(3, 2, figsize=(10.5, 12.0), sharex=True)
+    fig.suptitle(
+        rf"EIC coverage, $e \times p = {int(Ee_nom)} \times {int(Ep_nom)}$ GeV",
+        fontsize=fontsize + 2,
+        y=0.995,
+    )
+
+    for iq in range(3):
+        for ix in range(2):
+            ax = axes[iq, ix]
+            q_lbl, q_lo, q_hi = Q_REGION_SPECS[iq]
+            x_lbl, x_lo, x_hi = X_REGION_SPECS[ix]
+            if x_lbl == "Sea":
+                x_part = r"Sea: $0.001 < x < 0.05$"
+            else:
+                x_part = r"Valence: $x > 0.05$"
+            if q_hi is None:
+                q_part = rf"$Q > 10$ GeV"
+            else:
+                q_part = rf"${q_lo} < Q < {q_hi}$ GeV"
+            ax.set_title(f"{x_part}\n{q_part}", fontsize=fontsize - 1)
+
+            n_ev = int(n_events_cell[iq, ix])
+            n_eta_w = int(n_eta_in_window_cell[iq, ix])
+            tc = counts[iq, ix].sum()
+
+            if n_ev == 0:
+                ax.text(
+                    0.5,
+                    0.55,
+                    "No events in bin\n(selection + hadron chain)",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                    fontsize=fontsize,
+                )
+                ax.text(
+                    0.5,
+                    0.22,
+                    r"$N_{\mathrm{evt}}=0$",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                    fontsize=fontsize - 1,
+                )
+            elif tc == 0:
+                ax.text(
+                    0.5,
+                    0.55,
+                    r"No $\eta_h$ in plot range "
+                    rf"$[{ETA_RANGE[0]}, {ETA_RANGE[1]})$",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                    fontsize=fontsize - 1,
+                )
+                ax.text(
+                    0.5,
+                    0.22,
+                    rf"$N={n_ev}$ in bin, $\eta$ in range $=0$",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                    fontsize=fontsize - 1,
+                )
+            else:
+                ax.step(centers, densities[iq, ix], where="mid", color="k", linewidth=1.3)
+                warn = ""
+                if n_ev < 30:
+                    warn = "\n(low statistics)"
+                ax.text(
+                    0.04,
+                    0.92,
+                    rf"$N={n_ev}$, $N_\eta={n_eta_w}$" + warn,
+                    transform=ax.transAxes,
+                    fontsize=fontsize - 2,
+                    verticalalignment="top",
+                    horizontalalignment="left",
+                )
+
+            for eta_lo, eta_hi in EIC_REGIONS:
+                ax.axvspan(eta_lo, eta_hi, alpha=0.18, color="C0", zorder=0)
+
+            ax.set_xlim(ETA_RANGE[0], ETA_RANGE[1])
+            ax.set_ylim(0.0, ymax * 1.08)
+            ax.set_xlabel(r"$\eta_{h}$", fontsize=fontsize - 1)
+            if ix == 0:
+                ax.set_ylabel(r"$\dfrac{1}{\sigma} \dfrac{d\sigma}{d\eta_h}$", fontsize=fontsize - 1)
+            ax.grid(False)
+            ax.tick_params(direction="in", labelsize=fontsize - 1)
+
+    handles = [mpatches.Patch(color="C0", alpha=0.18, label=r"EIC coverage bands")]
+    axes[0, 0].legend(handles=handles, frameon=False, loc="upper left", fontsize=fontsize - 2)
+
+    plt.subplots_adjust(left=0.12, bottom=0.06, right=0.96, top=0.93, hspace=0.35, wspace=0.22)
+    out_pdf.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_pdf, format="pdf")
+    plt.close(fig)
+    print(f"Wrote PDF (absolute): {out_pdf.resolve()}")
+
+    summary_panels = []
+    for iq in range(3):
+        for ix in range(2):
+            q_lbl, q_lo, q_hi = Q_REGION_SPECS[iq]
+            x_lbl, x_lo, x_hi = X_REGION_SPECS[ix]
+            tc = int(counts[iq, ix].sum())
+            summary_panels.append(
+                {
+                    "shard_label": shard_label,
+                    "E_e_GeV": float(Ee_nom),
+                    "E_p_GeV": float(Ep_nom),
+                    "x_region_label": x_lbl,
+                    "x_min": x_lo,
+                    "x_max": x_hi,
+                    "Q_region_label": q_lbl,
+                    "Q_min_GeV": q_lo,
+                    "Q_max_GeV": q_hi,
+                    "n_events_in_bin": int(n_events_cell[iq, ix]),
+                    "n_events_eta_histogram": tc,
+                    "n_events_eta_in_plot_range_before_hist": int(n_eta_in_window_cell[iq, ix]),
+                    "density_normalization": "(hist counts in eta_bin j) / (sum hist counts * Δη_j); integrates to 1 over η",
+                    "eta_plot_range": list(ETA_RANGE),
+                    "eta_bins": int(ETA_BINS),
+                }
+            )
+    return summary_panels
+
+
+def run_eta_xq_grid_all_beams(max_events_per_beam: Optional[int] = None, flip_z_eta: bool = False):
+    """Produce four PDFs + JSON + CSV summaries under analysis_outputs_dir()."""
+    import csv
+
+    all_summaries = []
+    run_log: list[str] = []
+    doc = {
+        "Q_definition": "Q = sqrt(Q²) in GeV from four-momentum transfer q = k - k' (electron line)",
+        "x_definition": "DIS Bjorken x from Q²/(2 P·q) using stored proton and electron momenta",
+        "phase_space_note": (
+            "ETA_XQ_* shards use PhaseSpace:Q2Min = 4 GeV² in generation so Q > 2 GeV is allowed; "
+            "bins still apply strict cuts in Q."
+        ),
+        "beam_labels": [
+            {"E_e_GeV": ek[0], "E_p_GeV": ek[1], "shard_label": lab}
+            for ek, lab in ETA_XQ_LABEL_BY_BEAM.items()
+        ],
+        "panels": [],
+    }
+
+    for Ee_nom, Ep_nom in BEAM_CONFIGS_ETA_XQ:
+        lbl = ETA_XQ_LABEL_BY_BEAM[(Ee_nom, Ep_nom)]
+        outp = _beam_pdf_name(Ee_nom, Ep_nom)
+        shard_dir = DATA_ROOT / lbl
+        if not list_shards(lbl):
+            msg = (
+                f"Skipped label {lbl}: no shards found under {shard_dir.resolve()} "
+                f"(generate with: python scripts/generation/generate_events_raw.py --labels {lbl})"
+            )
+            print(msg)
+            run_log.append(msg)
+            continue
+        pan = make_eta_hadron_xQ_grid_for_beam(
+            Ee_nom, Ep_nom, lbl, outp, flip_z_eta=flip_z_eta, max_events=max_events_per_beam
+        )
+        if pan is not None:
+            all_summaries.extend(pan)
+            ok = f"Generated ETA x-Q figure for {lbl} ({Ee_nom}x{Ep_nom} GeV) -> {outp.resolve()}"
+            print(ok)
+            run_log.append(ok)
+
+    doc["panels"] = all_summaries
+    ETA_XQ_SUMMARY_JSON.write_text(json.dumps(doc, indent=2, sort_keys=True))
+    print(f"Saved summary (absolute): {ETA_XQ_SUMMARY_JSON.resolve()}")
+
+    if all_summaries:
+        keys = list(all_summaries[0].keys())
+        with open(ETA_XQ_SUMMARY_CSV, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=keys)
+            w.writeheader()
+            for row in all_summaries:
+                w.writerow(row)
+        print(f"Saved summary (absolute): {ETA_XQ_SUMMARY_CSV.resolve()}")
+
+    print("\n=== eta x-Q grid run summary ===")
+    for line in run_log:
+        print(line)
+    if not any("Generated ETA" in x for x in run_log):
+        print("WARNING: No ETA x-Q PDFs were produced (all labels skipped or empty).")
+
+
 # -----------------------------
 # Eta analysis: stream shards, incremental histogram
 # -----------------------------
@@ -222,60 +630,14 @@ def run_eta_analysis_and_plot(max_events=None):
         for ie in range(Ne):
             if max_events is not None and processed >= max_events:
                 break
-            e_in_ev = flip_z(np.asarray(e_in[ie], dtype=float), FLIP_Z_ETA)
-            p_in_ev = flip_z(np.asarray(p_in[ie], dtype=float), FLIP_Z_ETA)
-            e_sc_ev = flip_z(np.asarray(e_sc[ie], dtype=float), FLIP_Z_ETA)
-            Ep = float(p_in_ev[0])
-            Ee = float(e_in_ev[0])
-            q0 = e_in_ev[0] - e_sc_ev[0]
-            q1 = e_in_ev[1] - e_sc_ev[1]
-            q2 = e_in_ev[2] - e_sc_ev[2]
-            q3 = e_in_ev[3] - e_sc_ev[3]
-            qmu = np.array([q0, q1, q2, q3])
-            Q2 = -(q0*q0 - q1*q1 - q2*q2 - q3*q3)
-            if Q2 <= 0:
+            res = compute_x_Q_eta_one_event(
+                e_in[ie], p_in[ie], e_sc[ie], offsets, pid, p4_arr, ie, FLIP_Z_ETA
+            )
+            if res is None:
                 continue
-            Q = float(np.sqrt(Q2))
-            qT = float(np.hypot(q1, q2))
-            # Lorentz-invariant p·q (proton 4-vector from event)
-            p_dot_q = p_in_ev[0]*q0 - p_in_ev[1]*q1 - p_in_ev[2]*q2 - p_in_ev[3]*q3
-            if p_dot_q == 0:
-                continue
-            x = Q2 / (2.0 * p_dot_q)
+            x, Q, eta = res
             if not (xmin_eta <= x <= xmax_eta) or not (Qmin_eta <= Q <= Qmax_eta):
                 continue
-            phiq = float(np.arctan2(q2, q1))
-            S = 4.0 * Ee * Ep
-            y = Q2 / (S * x)
-            LT = build_LT(Ee, Ep, qmu, x, y, qT, phiq, S)
-            if LT is None:
-                continue
-
-            start = int(offsets[ie])
-            end = int(offsets[ie + 1])
-            best_E = -1.0
-            best_lab = None
-            for j in range(start, end):
-                this_pid = int(pid[j])
-                if not is_hadron(this_pid):
-                    continue
-                lab = flip_z(np.asarray(p4_arr[j], dtype=float), FLIP_Z_ETA)
-                trf = LT @ lab
-                E_, px_, py_, pz_ = trf
-                if pz_ <= 0:
-                    continue
-                if E_ > best_E:
-                    best_E = E_
-                    best_lab = lab
-            if best_lab is None:
-                continue
-            E_lab, px_lab, py_lab, pz_lab = best_lab
-            p_mag = np.sqrt(px_lab*px_lab + py_lab*py_lab + pz_lab*pz_lab)
-            if p_mag <= 0:
-                continue
-            den = max(p_mag - pz_lab, 1e-12)
-            num = max(p_mag + pz_lab, 1e-12)
-            eta = float(0.5 * np.log(num / den))
             if ETA_RANGE[0] <= eta < ETA_RANGE[1]:
                 bin_idx = np.searchsorted(edges, eta, side="right") - 1
                 if 0 <= bin_idx < ETA_BINS:
@@ -285,6 +647,8 @@ def run_eta_analysis_and_plot(max_events=None):
             processed += 1
 
         print(f"[eta] shard {shard_idx} ({shard_path.name}): {processed} events so far")
+        if max_events is not None and processed >= max_events:
+            break
 
     if processed == 0:
         print("[eta] No events passed cuts.")
@@ -304,8 +668,8 @@ def run_eta_analysis_and_plot(max_events=None):
     mpl.rcParams['legend.fontsize'] = fontsize
     fig, ax = plt.subplots()
     ax.step(centers, density, where='mid', color='k', linewidth=1.5)
-    ax.axvspan(4.6, 5.9, alpha=0.18, color='C0', zorder=0)
-    ax.axvspan(6.0, 8.0, alpha=0.18, color='C0', zorder=0)
+    for eta_lo, eta_hi in EIC_REGIONS:
+        ax.axvspan(eta_lo, eta_hi, alpha=0.18, color='C0', zorder=0)
     ax.set_xlabel(r"$\eta_{h}$", fontsize=fontsize)
     ax.set_ylabel(r"$\dfrac{1}{\sigma} \dfrac{d\sigma}{d\eta_h}$", fontsize=fontsize)
     ax.grid(False)
@@ -519,14 +883,14 @@ def _run_ptrel_from_shards(label, max_events, out_pTrel, out_x, out_Q):
         used_event_ids = np.asarray(used_event_ids, dtype=np.int64)
         print(f"[{label}] USED EVENT COUNT =", used_event_ids.shape[0])
         print(f"[{label}] USED EVENT HASH  =", _stable_hash_ints(used_event_ids))
-        np.save(_PROJECT_ROOT / f"used_event_ids_{label}_NEW.npy", used_event_ids)
+        np.save(_ANALYSIS_DIR / f"used_event_ids_{label}_NEW.npy", used_event_ids)
         if used_event_triplets:
             used_event_triplets = np.asarray(used_event_triplets, dtype=np.int64)
             print(f"[{label}] USED TRIPLETS HASH =", _stable_hash_ints(used_event_triplets.reshape(-1)))
-            np.save(_PROJECT_ROOT / f"used_event_triplets_{label}_NEW.npy", used_event_triplets)
+            np.save(_ANALYSIS_DIR / f"used_event_triplets_{label}_NEW.npy", used_event_triplets)
         if debug_records:
             debug_records = np.array(debug_records, dtype=np.float64)
-            np.save(_PROJECT_ROOT / f"debug_records_{label}_NEW.npy", debug_records)
+            np.save(_ANALYSIS_DIR / f"debug_records_{label}_NEW.npy", debug_records)
     return processed
 
 
@@ -598,7 +962,7 @@ def run_ptrel_comparison_and_plot(max_events=None):
         ax_d.set_ylabel("Raw counts")
         ax_d.legend()
         ax_d.set_title("pTrel debug: raw counts only")
-        plt.savefig(_PROJECT_ROOT / "pTrel_debug_raw_counts.pdf", format="pdf")
+        plt.savefig(_ANALYSIS_DIR / "pTrel_debug_raw_counts.pdf", format="pdf")
         plt.close(fig_d)
         print("Saved: pTrel_debug_raw_counts.pdf (raw counts)")
 
@@ -646,6 +1010,8 @@ def run_ptrel_comparison_and_plot(max_events=None):
 # Main
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    print("Analyzing raw shards -> eta x-Q grid PDFs (four beams)")
+    run_eta_xq_grid_all_beams()
     print("Analyzing raw shards ->", ETA_PDF)
     run_eta_analysis_and_plot()
     print("Analyzing raw shards ->", PTREL_PDF)

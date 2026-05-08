@@ -12,6 +12,11 @@ _SRC = _PROJECT_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from diquark.paths import analysis_outputs_dir
+
+_ANALYSIS_DIR = analysis_outputs_dir()
+_ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
+
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -177,7 +182,7 @@ def main():
     ax1.set_title("D_Rpi magnitude (narrow x,Q bin)", fontsize=fontsize)
     ax1.tick_params(direction="in", labelsize=fontsize)
     plt.tight_layout()
-    plt.savefig(_PROJECT_ROOT / "test_tmd_D_mag_hist.pdf", format="pdf")
+    plt.savefig(_ANALYSIS_DIR / "test_tmd_D_mag_hist.pdf", format="pdf")
     plt.close(fig1)
     print("Saved: test_tmd_D_mag_hist.pdf")
 
@@ -224,7 +229,7 @@ def main():
     ax2.text(0.02, 0.98, f"$\\mu = {mu_fit:.4f}$\n$\\sigma = {sigma_fit:.4f}$",
              transform=ax2.transAxes, fontsize=fontsize, verticalalignment="top")
     plt.tight_layout()
-    plt.savefig(_PROJECT_ROOT / "test_tmd_D_x_hist.pdf", format="pdf")
+    plt.savefig(_ANALYSIS_DIR / "test_tmd_D_x_hist.pdf", format="pdf")
     plt.close(fig2)
     print("Saved: test_tmd_D_x_hist.pdf")
 

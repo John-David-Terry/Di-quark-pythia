@@ -8,8 +8,13 @@ import sys
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
+_SRC = _PROJECT_ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from diquark.paths import analysis_outputs_dir
+
+_ANALYSIS_DIR = analysis_outputs_dir()
 
 import hashlib
 import warnings
@@ -79,7 +84,7 @@ def fit_gaussian_curve_fit(centers, counts, fit_mask):
 
 
 def plot_one(name, xlabel, filename):
-    arr_path = _PROJECT_ROOT / f"{name}_ISRFSR_ON.npy"
+    arr_path = _ANALYSIS_DIR / f"{name}_ISRFSR_ON.npy"
     vals = np.load(arr_path)
     vals = np.asarray(vals, dtype=np.float64).flatten()
 
@@ -138,7 +143,7 @@ def plot_one(name, xlabel, filename):
     )
 
     plt.subplots_adjust(left=0.15, bottom=0.15, right=0.95, top=0.93)
-    plt.savefig(_PROJECT_ROOT / filename, format="pdf")
+    plt.savefig(_ANALYSIS_DIR / filename, format="pdf")
     plt.close(fig)
     print(f"[{name}] fit mu={mu:.4f} sigma={sigma:.4f} (fit range [0, {fit_x_max:.2f}])")
     print(f"Saved: {filename}")

@@ -1,0 +1,15 @@
+{
+  "total_attempted": 600000,
+  "total_succeeded": 599376,
+  "total_failed": 624,
+  "failure_reasons": {
+    "pythia.next() failed": 624
+  },
+  "input_root": "/Users/johnterry/Documents/Projects/Di-quark-pythia/analysis/dis_us_sbar_6M_5x41/altered_100k_parquet",
+  "output_root": "/Users/johnterry/Documents/Projects/Di-quark-pythia/analysis/dis_us_sbar_6M_5x41/final_state_v1",
+  "arm": "altered_reinject",
+  "events_per_shard": 10000,
+  "elapsed_s": 691.8923716410063,
+  "events_per_s": 867.186898703538,
+  "n_output_shards": 60
+}

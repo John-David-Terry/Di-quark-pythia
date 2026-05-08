@@ -29,6 +29,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from diquark.paths import analysis_outputs_dir
+
+_ANALYSIS_DIR = analysis_outputs_dir()
+_ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
+
 from diquark.analyze_events_raw import (
     FLIP_Z_PTREL,
     PTREL_LABEL_OFF,
@@ -822,7 +827,7 @@ transverse direction is fixed by the original q_T in the lab frame.
     ax.set_title("LT Lorentz condition residual")
     
     plt.tight_layout()
-    out_path = _PROJECT_ROOT / "breit_frame_audit_plots.pdf"
+    out_path = _ANALYSIS_DIR / "breit_frame_audit_plots.pdf"
     plt.savefig(out_path)
     plt.close()
     print(f"Saved: {out_path}")

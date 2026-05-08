@@ -1,0 +1,8 @@
+{
+  "source_csv": "/Users/johnterry/Documents/Projects/Di-quark-pythia/analysis/dis_us_sbar_1M/jet_hadron_pi_pm_observables_us_sbar_1M.csv",
+  "out_csv": "/Users/johnterry/Documents/Projects/Di-quark-pythia/analysis/dis_us_sbar_1M/jet_hadron_pi_pm_observables_signal54217_plus_unchanged487950.csv",
+  "n_signal_sampled": 54217,
+  "n_unchanged_all": 487950,
+  "n_rows": 542167,
+  "random_seed": 42
+}

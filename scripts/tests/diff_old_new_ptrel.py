@@ -22,6 +22,11 @@ import sys
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_SRC = _PROJECT_ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from diquark.paths import analysis_outputs_dir  # noqa: E402
 
 import hashlib
 
@@ -38,7 +43,7 @@ def load(path):
 
 def compare_event_ids(label):
     """Compare used_event_ids (N,2): (shard_idx, local_idx)."""
-    root = _PROJECT_ROOT
+    root = analysis_outputs_dir()
     a = load(root / f"used_event_ids_{label}_OLD.npy").astype(np.int64)
     b = load(root / f"used_event_ids_{label}_NEW.npy").astype(np.int64)
     print(f"[{label}] OLD event_ids count={a.shape[0]} hash={md5(a)}")
@@ -57,7 +62,7 @@ def compare_event_ids(label):
 
 def compare_triplets(label):
     """Compare used_event_triplets (N,3): (shard_idx, local_idx, pid)."""
-    root = _PROJECT_ROOT
+    root = analysis_outputs_dir()
     a = load(root / f"used_event_triplets_{label}_OLD.npy").astype(np.int64)
     b = load(root / f"used_event_triplets_{label}_NEW.npy").astype(np.int64)
     print(f"[{label}] OLD triplets hash={md5(a)}")
@@ -76,7 +81,7 @@ def compare_triplets(label):
 
 def compare_debug_records(label, tol=1e-9):
     """Compare debug_records; first two columns are (shard_idx, local_idx). Sort by (col0, col1)."""
-    root = _PROJECT_ROOT
+    root = analysis_outputs_dir()
     a = load(root / f"debug_records_{label}_OLD.npy")
     b = load(root / f"debug_records_{label}_NEW.npy")
     order_a = np.lexsort((a[:, 1], a[:, 0]))

@@ -1,0 +1,13 @@
+{
+  "total_attempted": 9923,
+  "total_succeeded": 9923,
+  "total_failed": 0,
+  "failure_reasons": {},
+  "input_root": "/Users/johnterry/Documents/Projects/Di-quark-pythia/analysis/dis_stratified_20k_ab/altered_100k_parquet",
+  "output_root": "/Users/johnterry/Documents/Projects/Di-quark-pythia/analysis/dis_stratified_20k_ab_reinject/final_state_v1",
+  "arm": "altered_reinject",
+  "events_per_shard": 10000,
+  "elapsed_s": 17.1235570780118,
+  "events_per_s": 579.4940826133626,
+  "n_output_shards": 1
+}

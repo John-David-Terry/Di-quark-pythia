@@ -1,0 +1,50 @@
+{
+  "altered_root": "/Users/johnterry/Documents/Projects/Di-quark-pythia/analysis/dis_stratified_20k_ab/altered_100k_parquet",
+  "skipped_bad_struck_index": 0,
+  "per_channel": {
+    "A": {
+      "label": "(ud)->[d]+(uu)+ubar",
+      "n_events": 4963,
+      "n_leading_pi_plus_ok": 925,
+      "n_leading_pi_minus_ok": 985,
+      "n_both_ok": 363,
+      "frac_leading_pi_plus_ok": 0.18637920612532743,
+      "frac_leading_pi_minus_ok": 0.19846866814426758,
+      "frac_both_ok": 0.07314124521458795,
+      "fail_reason_counts": {
+        "piplus": {
+          "no_pion_candidate": 1023,
+          "xQ_window": 2236,
+          "xL_range": 779
+        },
+        "piminus": {
+          "xQ_window": 2236,
+          "xL_range": 974,
+          "no_pion_candidate": 768
+        }
+      }
+    },
+    "B": {
+      "label": "(ud)->[d]+(ud)+dbar",
+      "n_events": 4960,
+      "n_leading_pi_plus_ok": 917,
+      "n_leading_pi_minus_ok": 394,
+      "n_both_ok": 157,
+      "frac_leading_pi_plus_ok": 0.1848790322580645,
+      "frac_leading_pi_minus_ok": 0.07943548387096774,
+      "frac_both_ok": 0.031653225806451614,
+      "fail_reason_counts": {
+        "piplus": {
+          "xQ_window": 2244,
+          "xL_range": 1059,
+          "no_pion_candidate": 740
+        },
+        "piminus": {
+          "xQ_window": 2244,
+          "xL_range": 995,
+          "no_pion_candidate": 1327
+        }
+      }
+    }
+  }
+}

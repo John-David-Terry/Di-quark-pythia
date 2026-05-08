@@ -10,8 +10,13 @@ import sys
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
+_SRC = _PROJECT_ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from diquark.paths import analysis_outputs_dir
+
+_ANALYSIS_DIR = analysis_outputs_dir()
 
 import numpy as np
 import matplotlib
@@ -33,7 +38,7 @@ def half_gaussian(r, A, sigma):
 
 def main():
     # 1) Load data
-    D_vals = np.load(_PROJECT_ROOT / "D_Rpi_ISRFSR_ON.npy")
+    D_vals = np.load(_ANALYSIS_DIR / "D_Rpi_ISRFSR_ON.npy")
     D_vals = D_vals[np.isfinite(D_vals)]
     D_vals = D_vals[D_vals > 0.0]
 
@@ -140,7 +145,7 @@ def main():
     ax.tick_params(direction="in", labelsize=fontsize)
     ax.set_xlim(0.0, centers_core.max())
     plt.tight_layout()
-    outname = _PROJECT_ROOT / "D_Rpi_ISRFSR_ON_jacobian_corrected.pdf"
+    outname = _ANALYSIS_DIR / "D_Rpi_ISRFSR_ON_jacobian_corrected.pdf"
     plt.savefig(outname, format="pdf")
     plt.close(fig)
     print(f"Saved: {outname}")

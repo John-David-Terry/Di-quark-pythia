@@ -7,8 +7,12 @@ Run from project root: python scripts/generation/generate_events_raw.py
 """
 import argparse
 import json
+import sys
 from pathlib import Path
+from typing import Tuple
+
 import numpy as np
+from tqdm import tqdm
 
 import pythia8
 
@@ -16,7 +20,13 @@ import pythia8
 # Configuration
 # -----------------------------
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-OUTDIR = _PROJECT_ROOT / "pythia_finalstate_raw"
+_SRC = _PROJECT_ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from diquark.paths import count_files_under, pythia_finalstate_raw_dir, write_run_manifest  # noqa: E402
+
+OUTDIR = pythia_finalstate_raw_dir()
 OUTDIR.mkdir(parents=True, exist_ok=True)
 
 N_EVENTS_PER_CONFIG = 1_000_000  # Set to 20_000 for quick test; comment out ISRFSR_* in main() to generate only ETA_ON_CRON
@@ -111,6 +121,19 @@ def next_shard_to_write(label: str) -> int:
     return idx
 
 
+def already_completed_events(label: str, next_shard_idx: int) -> int:
+    """Sum events_in_shard from meta.json for completed shards (handles partial last shard)."""
+    total = 0
+    for i in range(next_shard_idx):
+        mp = shard_dir(label, i) / "meta.json"
+        if not mp.exists():
+            continue
+        with open(mp) as f:
+            meta = json.load(f)
+        total += int(meta.get("events_in_shard", 0))
+    return total
+
+
 def write_shard(
     label: str,
     shard_idx: int,
@@ -138,6 +161,15 @@ def write_shard(
         json.dump(meta, f, indent=2, sort_keys=True)
 
 
+def _electron_proton_GeV(cfg: dict) -> Tuple[float, float]:
+    """Beam energies (electron, proton) from PYTHIA cfg."""
+    if cfg["idA"] == 2212 and cfg["idB"] == 11:
+        return float(cfg["eB"]), float(cfg["eA"])
+    if cfg["idA"] == 11 and cfg["idB"] == 2212:
+        return float(cfg["eA"]), float(cfg["eB"])
+    raise ValueError(f"Unhandled beams idA={cfg['idA']} idB={cfg['idB']}")
+
+
 def build_pythia(
     idA: int,
     idB: int,
@@ -146,9 +178,11 @@ def build_pythia(
     colour_reconnect_on: bool,
     isr_fsr_on: bool,
     seed: int,
+    phase_space_q2_min: float | None = None,
 ):
     """Build PYTHIA with configurable beams and options."""
     p = pythia8.Pythia()
+    q2min = float(Q2_MIN if phase_space_q2_min is None else phase_space_q2_min)
 
     p.readString(f"Beams:idA = {idA}")
     p.readString(f"Beams:idB = {idB}")
@@ -158,7 +192,7 @@ def build_pythia(
     p.readString("WeakBosonExchange:ff2ff(t:gmZ) = on")
     p.readString("HardQCD:all = off")
     p.readString("PDF:lepton = off")
-    p.readString(f"PhaseSpace:Q2Min = {Q2_MIN}")
+    p.readString(f"PhaseSpace:Q2Min = {q2min}")
 
     p.readString("HadronLevel:all = on")
     p.readString(f"ColourReconnection:reconnect = {'on' if colour_reconnect_on else 'off'}")
@@ -179,6 +213,8 @@ def build_pythia(
 
 def _config_fingerprint(cfg: dict) -> dict:
     """Serializable fingerprint for a label's PYTHIA config."""
+    Ee, Ep = _electron_proton_GeV(cfg)
+    q2m = float(cfg.get("q2_min", Q2_MIN))
     return {
         "idA": int(cfg["idA"]),
         "idB": int(cfg["idB"]),
@@ -187,9 +223,9 @@ def _config_fingerprint(cfg: dict) -> dict:
         "isr_fsr_on": bool(cfg["isr_fsr_on"]),
         "colour_reconnect_on": bool(cfg["colour_reconnect_on"]),
         "seed_offset": int(cfg["seed_offset"]),
-        "Q2_MIN": float(Q2_MIN),
-        "E_E": float(E_E),
-        "E_P": float(E_P),
+        "Q2_MIN": q2m,
+        "E_E": Ee,
+        "E_P": Ep,
     }
 
 
@@ -222,6 +258,7 @@ def generate_config(
     config_meta: dict = None,
 ):
     _check_or_write_fingerprint(label, cfg)
+    q2_phase = cfg.get("q2_min", Q2_MIN)
     pythia_builder = lambda: build_pythia(
         idA=cfg["idA"],
         idB=cfg["idB"],
@@ -230,9 +267,10 @@ def generate_config(
         colour_reconnect_on=cfg["colour_reconnect_on"],
         isr_fsr_on=cfg["isr_fsr_on"],
         seed=BASE_SEED + cfg["seed_offset"],
+        phase_space_q2_min=q2_phase,
     )
     shard_idx = next_shard_to_write(label)
-    already_done = shard_idx * events_per_shard
+    already_done = already_completed_events(label, shard_idx)
     if already_done >= n_events:
         print(f"[{label}] Already complete ({already_done} >= {n_events}).")
         return
@@ -248,91 +286,106 @@ def generate_config(
             skipped += 1
 
     produced_total = already_done
-    while produced_total < n_events:
-        Ne = min(events_per_shard, n_events - produced_total)
+    # One bar per label: advances once per accepted/written event (matches saved events).
+    with tqdm(
+        total=n_events,
+        initial=produced_total,
+        desc=f"{label}",
+        unit="evt",
+        dynamic_ncols=True,
+        miniters=1,
+        smoothing=0.05,
+    ) as pbar:
+        while produced_total < n_events:
+            Ne = min(events_per_shard, n_events - produced_total)
 
-        e_in_arr = np.zeros((Ne, 4), dtype=DT_FLOAT)
-        p_in_arr = np.zeros((Ne, 4), dtype=DT_FLOAT)
-        e_sc_arr = np.zeros((Ne, 4), dtype=DT_FLOAT)
-        k_out_arr = np.zeros((Ne, 4), dtype=DT_FLOAT)
+            e_in_arr = np.zeros((Ne, 4), dtype=DT_FLOAT)
+            p_in_arr = np.zeros((Ne, 4), dtype=DT_FLOAT)
+            e_sc_arr = np.zeros((Ne, 4), dtype=DT_FLOAT)
+            k_out_arr = np.zeros((Ne, 4), dtype=DT_FLOAT)
 
-        offsets = np.zeros(Ne + 1, dtype=DT_OFF)
-        pid_list = []
-        p4_list = []
+            offsets = np.zeros(Ne + 1, dtype=DT_OFF)
+            pid_list = []
+            p4_list = []
 
-        kept_events = 0
-        attempts = 0
+            kept_events = 0
+            attempts = 0
 
-        while kept_events < Ne:
-            attempts += 1
-            if DEBUG and attempts >= DEBUG_ATTEMPTS:
-                break
-            if not pythia.next():
-                continue
+            while kept_events < Ne:
+                attempts += 1
+                if DEBUG and attempts >= DEBUG_ATTEMPTS:
+                    break
+                if not pythia.next():
+                    continue
 
-            ev = pythia.event
+                ev = pythia.event
 
-            e_in, p_in = find_incoming_beams(ev)
-            if e_in is None or p_in is None:
-                continue
+                e_in, p_in = find_incoming_beams(ev)
+                if e_in is None or p_in is None:
+                    continue
 
-            e_sc = get_scattered_electron(ev)
-            if e_sc is None:
-                continue
+                e_sc = get_scattered_electron(ev)
+                if e_sc is None:
+                    continue
 
-            k_out = find_k_out(ev)
-            if k_out is None:
-                continue
+                k_out = find_k_out(ev)
+                if k_out is None:
+                    continue
 
-            e_in_arr[kept_events] = e_in
-            p_in_arr[kept_events] = p_in
-            e_sc_arr[kept_events] = p4_from_particle(e_sc)
-            k_out_arr[kept_events] = k_out
+                e_in_arr[kept_events] = e_in
+                p_in_arr[kept_events] = p_in
+                e_sc_arr[kept_events] = p4_from_particle(e_sc)
+                k_out_arr[kept_events] = k_out
 
-            n_this = 0
-            for i in range(ev.size()):
-                p = ev[i]
-                if p.isFinal():
-                    pid_list.append(int(p.id()))
-                    p4_list.append([p.e(), p.px(), p.py(), p.pz()])
-                    n_this += 1
+                n_this = 0
+                for i in range(ev.size()):
+                    p = ev[i]
+                    if p.isFinal():
+                        pid_list.append(int(p.id()))
+                        p4_list.append([p.e(), p.px(), p.py(), p.pz()])
+                        n_this += 1
 
-            offsets[kept_events + 1] = offsets[kept_events] + n_this
-            kept_events += 1
+                offsets[kept_events + 1] = offsets[kept_events] + n_this
+                kept_events += 1
+                pbar.update(1)
 
-        if DEBUG:
-            print(f"[{label}] DEBUG: attempts={attempts}, kept={kept_events}")
-            return
+            if DEBUG:
+                print(f"[{label}] DEBUG: attempts={attempts}, kept={kept_events}")
+                return
 
-        pid = np.asarray(pid_list, dtype=DT_INT)
-        p4 = np.asarray(p4_list, dtype=DT_FLOAT)
+            pid = np.asarray(pid_list, dtype=DT_INT)
+            p4 = np.asarray(p4_list, dtype=DT_FLOAT)
 
-        meta = {
-            "label": label,
-            "E_e": float(E_E),
-            "E_p": float(E_P),
-            "Q2_min": float(Q2_MIN),
-            "seed": int(pythia.settings.mode("Random:seed")),
-            **(config_meta or {}),
-            "events_in_shard": int(Ne),
-            "attempts_for_shard": int(attempts),
-            "particles_in_shard": int(pid.shape[0]),
-            "event_index_start": int(produced_total),
-            "event_index_end_exclusive": int(produced_total + Ne),
-            "format": {
-                "event_vectors": "float32 (E,px,py,pz)",
-                "p4": "float32 (E,px,py,pz)",
-                "pid": "int32",
-                "offsets": "int64 prefix sum into pid/p4",
-                "final_state_only": True,
-            },
-        }
+            E_e_meta, E_p_meta = _electron_proton_GeV(cfg)
+            meta = {
+                "label": label,
+                "E_e": float(E_e_meta),
+                "E_p": float(E_p_meta),
+                "Q2_min": float(cfg.get("q2_min", Q2_MIN)),
+                "seed": int(pythia.settings.mode("Random:seed")),
+                **(config_meta or {}),
+                "events_in_shard": int(Ne),
+                "attempts_for_shard": int(attempts),
+                "particles_in_shard": int(pid.shape[0]),
+                "event_index_start": int(produced_total),
+                "event_index_end_exclusive": int(produced_total + Ne),
+                "format": {
+                    "event_vectors": "float32 (E,px,py,pz)",
+                    "p4": "float32 (E,px,py,pz)",
+                    "pid": "int32",
+                    "offsets": "int64 prefix sum into pid/p4",
+                    "final_state_only": True,
+                },
+            }
 
-        write_shard(label, shard_idx, e_in_arr, p_in_arr, e_sc_arr, k_out_arr, offsets, pid, p4, meta)
+            write_shard(label, shard_idx, e_in_arr, p_in_arr, e_sc_arr, k_out_arr, offsets, pid, p4, meta)
 
-        produced_total += Ne
-        print(f"[{label}] shard {shard_idx}: {Ne} events (total={produced_total}/{n_events}), acceptance={Ne/attempts:.4f}")
-        shard_idx += 1
+            produced_total += Ne
+            print(
+                f"[{label}] shard {shard_idx}: {Ne} events "
+                f"(total={produced_total}/{n_events}), acceptance={Ne/attempts:.4f}"
+            )
+            shard_idx += 1
 
     print(f"[{label}] done.")
     pythia.stat()
@@ -350,6 +403,51 @@ LABEL_CONFIGS = {
         "colour_reconnect_on": True,
         "seed_offset": 100,
         "config_meta": {"Beams:idA": 2212, "Beams:idB": 11, "ColourReconnection": "on"},
+    },
+    # Eta vs x–Q coverage grids (same physics setup as ETA_ON_CRON; PhaseSpace Q²_min = 4 GeV² → Q > 2 GeV)
+    "ETA_XQ_5x41": {
+        "idA": 2212,
+        "idB": 11,
+        "eA": 41.0,
+        "eB": 5.0,
+        "isr_fsr_on": True,
+        "colour_reconnect_on": True,
+        "seed_offset": 210,
+        "q2_min": 4.0,
+        "config_meta": {"Beams:idA": 2212, "Beams:idB": 11, "ColourReconnection": "on", "purpose": "eta_xq_grid"},
+    },
+    "ETA_XQ_9x41": {
+        "idA": 2212,
+        "idB": 11,
+        "eA": 41.0,
+        "eB": 9.0,
+        "isr_fsr_on": True,
+        "colour_reconnect_on": True,
+        "seed_offset": 211,
+        "q2_min": 4.0,
+        "config_meta": {"Beams:idA": 2212, "Beams:idB": 11, "ColourReconnection": "on", "purpose": "eta_xq_grid"},
+    },
+    "ETA_XQ_9x100": {
+        "idA": 2212,
+        "idB": 11,
+        "eA": 100.0,
+        "eB": 9.0,
+        "isr_fsr_on": True,
+        "colour_reconnect_on": True,
+        "seed_offset": 212,
+        "q2_min": 4.0,
+        "config_meta": {"Beams:idA": 2212, "Beams:idB": 11, "ColourReconnection": "on", "purpose": "eta_xq_grid"},
+    },
+    "ETA_XQ_9x275": {
+        "idA": 2212,
+        "idB": 11,
+        "eA": 275.0,
+        "eB": 9.0,
+        "isr_fsr_on": True,
+        "colour_reconnect_on": True,
+        "seed_offset": 213,
+        "q2_min": 4.0,
+        "config_meta": {"Beams:idA": 2212, "Beams:idB": 11, "ColourReconnection": "on", "purpose": "eta_xq_grid"},
     },
     "ISRFSR_ON": {
         "idA": 11,
@@ -373,7 +471,8 @@ LABEL_CONFIGS = {
     },
 }
 
-DEFAULT_LABELS = list(LABEL_CONFIGS.keys())
+# Keep default generation focused on legacy labels; eta–x–Q grids use ETA_XQ_* via --labels.
+DEFAULT_LABELS = ["ETA_ON_CRON", "ISRFSR_ON", "ISRFSR_OFF"]
 
 
 def main():
@@ -382,7 +481,7 @@ def main():
         "--labels",
         type=str,
         default=",".join(DEFAULT_LABELS),
-        help=f"Comma-separated labels to generate (default: all). Choices: {DEFAULT_LABELS}",
+        help=f"Comma-separated labels to generate (default: legacy three). Valid: {list(LABEL_CONFIGS.keys())}",
     )
     parser.add_argument(
         "--n_events",
@@ -407,16 +506,44 @@ def main():
     events_per_shard = args.events_per_shard
     print(f"Labels: {requested}, n_events={n_events}, events_per_shard={events_per_shard}")
 
+    root_abs = OUTDIR.resolve()
+    print(f"Raw data root (absolute): {root_abs}")
+
     for label in requested:
         cfg = LABEL_CONFIGS[label].copy()
         config_meta = cfg.pop("config_meta", None)
-        generate_config(
-            label=label,
-            cfg=cfg,
-            n_events=n_events,
-            events_per_shard=events_per_shard,
-            config_meta=config_meta,
-        )
+        try:
+            generate_config(
+                label=label,
+                cfg=cfg,
+                n_events=n_events,
+                events_per_shard=events_per_shard,
+                config_meta=config_meta,
+            )
+            label_abs = (OUTDIR / label).resolve()
+            print(f"Generated label {label} successfully -> {label_abs}")
+        except Exception as e:
+            print(f"FAILED label {label}: {e}")
+            raise
+
+    n_files, capped = count_files_under(OUTDIR)
+    manifest_path = write_run_manifest(
+        run_label="generate_events_raw",
+        script_name="scripts/generation/generate_events_raw.py",
+        top_level_dirs_written=[str(OUTDIR)],
+        approximate_files_created=n_files,
+        approximate_files_capped=capped,
+        extra={
+            "labels": requested,
+            "n_events_per_label": n_events,
+            "events_per_shard": events_per_shard,
+        },
+    )
+    print(f"run_manifest={manifest_path}")
+    print("\n=== generate_events_raw summary ===")
+    print(f"Raw data root (absolute): {root_abs}")
+    for lb in requested:
+        print(f"  Label directory: {(OUTDIR / lb).resolve()}")
 
 
 if __name__ == "__main__":

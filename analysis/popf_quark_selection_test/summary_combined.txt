@@ -1,0 +1,24 @@
+HIGH LEVEL SUMMARY
+
+Quark pair selection — HIGH LEVEL SUMMARY
+
+1) Was a valid event found? Yes.
+2) Which quarks were selected? Incoming (index 4, id=3), struck (index 19, id=3), partner (index 22, id=2).
+3) Do they share the expected ancestry? Struck quark ancestry includes the incoming quark index. Partner is a different flavour; a matching final-state antiquark exists (q' q̄' pair).
+
+LOW LEVEL SUMMARY
+
+Quark pair selection — LOW LEVEL SUMMARY
+
+incoming_quark_index: 4  pdg_id: 3  status: -21  col/acol: 101/0  mothers: 8,0
+  4-vector: px=-1.38778e-17 py=-3.46945e-18 pz=-3.11962 E=3.11962 m=0
+
+struck_quark_index: 19  pdg_id: 3  status: 62  col/acol: 101/0  mothers: 15,15
+  4-vector: px=-3.70253 py=5.17742 pz=1.82827 E=6.6413 m=0.5
+  ancestry_chain: [19, 15, 10, 6, 3, 7, 12, 1]
+
+partner_quark_index: 22  pdg_id: 2  status: 63  col/acol: 102/0  mothers: 2,0
+  4-vector: px=0.546489 py=0.221193 pz=-23.6677 E=23.6773 m=0.33
+  ancestry_chain: [22, 2]
+
+has_qbar_pair: True

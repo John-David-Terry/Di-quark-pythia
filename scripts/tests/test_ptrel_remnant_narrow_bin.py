@@ -13,6 +13,11 @@ _SRC = _PROJECT_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from diquark.paths import analysis_outputs_dir
+
+_ANALYSIS_DIR = analysis_outputs_dir()
+_ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
+
 import numpy as np
 import matplotlib
 
@@ -241,7 +246,7 @@ def main():
         verticalalignment="top",
     )
     plt.tight_layout()
-    outname_signed = _PROJECT_ROOT / "pTrel_remnant_ISRFSR_ON_narrow_bin.pdf"
+    outname_signed = _ANALYSIS_DIR / "pTrel_remnant_ISRFSR_ON_narrow_bin.pdf"
     plt.savefig(outname_signed, format="pdf")
     plt.close(fig)
     print(f"Saved: {outname_signed}")
@@ -270,7 +275,7 @@ def main():
     ax_mag.legend(loc="best", fontsize=fontsize)
     ax_mag.tick_params(direction="in", labelsize=fontsize)
     plt.tight_layout()
-    outname_mag = _PROJECT_ROOT / "pTrel_remnant_ISRFSR_ON_narrow_bin_mag.pdf"
+    outname_mag = _ANALYSIS_DIR / "pTrel_remnant_ISRFSR_ON_narrow_bin_mag.pdf"
     plt.savefig(outname_mag, format="pdf")
     plt.close(fig_mag)
     print(f"Saved: {outname_mag}")

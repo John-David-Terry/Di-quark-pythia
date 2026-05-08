@@ -1,30 +1,22 @@
 #!/usr/bin/env python3
 """
-Analyze three observables built from jet (active incoming parton) and hadron transverse momenta.
+Analyze three observables built from jet (outgoing struck quark) and hadron transverse momenta.
 
-IMPORTANT FIX (2024):
-  The old definition k_in = k_out - q was removed because it was UNPHYSICAL.
-  The k_out from PYTHIA status=23 is not kinematically consistent with simple LO DIS,
-  resulting in k_in having negative energy and being deeply spacelike (k^2 ~ -200 GeV^2).
-  This caused a spurious O(2 GeV) transverse momentum and artificial x-axis locking.
+Jet identification:
+  The jet is the **outgoing quark** after the hard scattering: lab-frame 4-momentum ``k_out``
+  (stored per event as ``event_k_out``). In the Breit frame,
+  ``pT_jet = (P_{jet,x}, P_{jet,y})`` with ``P_jet^{Breit} = boost(k_out)``.
+  This matches the parton that fragments into the current hemisphere and carries the
+  transverse physics from the hard process (including any injected k_T).
 
-  The regenerated plots now use the BENCHMARK COLLINEAR DEFINITION:
-    k_in_ref = x * P
-  where x is Bjorken x and P is the proton 4-vector in the LAB frame.
-  This benchmark has k_in^2 = x^2 * m_p^2 (physical, timelike) and positive energy.
-  In the collinear parton model, k_in_ref has ZERO transverse momentum in the Breit frame.
+  (Previously the script used a collinear benchmark ``k_in_ref = x * P``, which has
+  essentially zero ``pT`` in Breit and washes out jet--hadron correlations.)
 
 Observables (all in Breit frame). The magnitude is taken only after vector addition or
 subtraction. Do not use |pT_jet| + |pT_h| or |pT_jet| - |pT_h|.
   - Observable 1: angle between the two transverse vectors (convention [0, pi]).
   - Observable 2: first form the vector sum, then take the magnitude: |pT_jet + pT_h|.
   - Observable 3: first form the vector difference, then take the magnitude: |pT_jet - pT_h|.
-
-Jet (collinear incoming parton) identification:
-  We define the jet as the collinear incoming parton: k_in_ref = x * P (Bjorken x times proton).
-  This is the benchmark collinear parton model definition. In the Breit frame, this has
-  essentially zero transverse momentum (pT_jet ~ 0), so the observables are dominated by
-  the hadron's transverse momentum.
 
 Hadron identification:
   Target-fragmentation leading pion: highest-energy hadron in Breit target hemisphere
@@ -47,6 +39,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+
+from diquark.paths import analysis_outputs_dir
+
+_JH_OUT = analysis_outputs_dir()
+_JH_OUT.mkdir(parents=True, exist_ok=True)
 
 from diquark.analyze_events_raw import (
     FLIP_Z_PTREL,
@@ -85,7 +82,7 @@ SUM_DIFF_BINS = 50
 SUM_DIFF_MAX_GEV = 5.0
 SUM_DIFF_RANGE = (0.0, SUM_DIFF_MAX_GEV)
 
-# Outputs (project root)
+# Outputs under DIQUARK_DATA_ROOT/.../outputs/analysis
 OUTPUT_PREFIX = "jet_hadron_transverse"
 HADRON_TAG = "target_leading_pion"
 FRAME_TAG = "Breit"
@@ -210,14 +207,16 @@ def run_azimuth_origin_diagnostic(label: str, max_events: int | None = 500) -> d
             # k_in in lab and Breit
             k_in = k_out_ev - qmu
             k_in_breit = boost(k_in)
+            k_out_breit = boost(k_out_ev)
             
             # q in Breit
             q_breit = boost(qmu)
             
-            # Jet = P_proton - P_remnant = k_in in Breit
+            # Remnant from incoming parton k_in; xL cut uses P_rem and q
             p_rem_truth = np.asarray(p_in_ev, dtype=float) - k_in
             p_rem_truth_breit = boost(p_rem_truth)
-            P_jet_breit = p_breit - p_rem_truth_breit  # = k_in_breit
+            # Jet = outgoing quark (not k_in)
+            P_jet_breit = k_out_breit
             
             # xL cut
             den = dot4(p_rem_truth_breit, q_breit)
@@ -731,14 +730,10 @@ def run_observables_for_label(
             if best_tar_breit is None or abs(best_tar_pid) != 211:
                 continue
 
-            # FIXED: Use collinear parton model k_in_ref = x * P instead of unphysical k_out - q
-            # The old definition k_in = k_out - q was deeply off-shell and gave spurious O(2 GeV) pT
-            k_in_ref = x * p_in_ev  # Collinear parton: k_in = x * P (Bjorken x times proton)
-            k_in_ref_breit = boost(k_in_ref)
-            
-            # Remnant still defined from old k_in for xL cut compatibility
-            k_in_old = k_out_ev - qmu
-            p_rem_truth = np.asarray(p_in_ev, dtype=float) - k_in_old
+            # Remnant from k_in = k_out - q (same as xL convention elsewhere)
+            k_in_lab = k_out_ev - qmu
+            k_in_breit = boost(k_in_lab)
+            p_rem_truth = np.asarray(p_in_ev, dtype=float) - k_in_lab
             p_rem_truth_breit = boost(p_rem_truth)
             if np.linalg.norm(p3(p_rem_truth_breit)) <= 0:
                 continue
@@ -750,17 +745,13 @@ def run_observables_for_label(
             if xL_exact < 0.01 or xL_exact > 1.0 + 1e-6:
                 continue
 
-            # Jet = collinear incoming parton: k_in_ref = x * P (benchmark definition)
-            # In the Breit frame, this has essentially zero transverse momentum
-            p_proton_breit = np.asarray(p_breit, dtype=float)
-            pT_proton_breit = _pT_vec_breit(p_proton_breit)
+            # Jet = outgoing quark k_out (Breit); incoming k_in kept for remnant / diagnostics
+            k_out_breit = boost(k_out_ev)
             pT_remnant_breit = _pT_vec_breit(p_rem_truth_breit)
-            
-            # FIXED: pT_jet from the collinear benchmark k_in_ref, not from k_out - q
-            pT_jet_vec = _pT_vec_breit(k_in_ref_breit)
+            pT_jet_vec = _pT_vec_breit(k_out_breit)
             pT_jet_current = pT_jet_vec
             pT_jet_mag = float(np.linalg.norm(pT_jet_vec))
-            pT_kin = pT_jet_vec  # For compatibility with diagnostics
+            pT_kin = _pT_vec_breit(k_in_breit)
 
             # Hadron: target-leading pion
             pT_hadron_vec = _pT_vec_breit(best_tar_breit)
@@ -771,7 +762,7 @@ def run_observables_for_label(
             angle_hR = _angle_between_2d(pT_hadron_vec, pT_remnant_breit)
             angle_RJ = _angle_between_2d(pT_remnant_breit, pT_jet_vec)
             angle_h_kin = _angle_between_2d(pT_hadron_vec, pT_kin)
-            # Sign-consistency: jet_current vs k_in_direct
+            # Compare outgoing (k_out) vs incoming (k_in) transverse in Breit
             diff_minus = np.linalg.norm(pT_jet_current - pT_kin)
             diff_plus = np.linalg.norm(pT_jet_current + pT_kin)
             if diff_minus < sign_check_tol:
@@ -800,7 +791,7 @@ def run_observables_for_label(
             event_id = (int(shard_idx), int(ie))
             rec = {
                 "event_id": event_id,
-                "collinear_parton_4mom_breit": np.asarray(k_in_ref_breit, dtype=np.float64),
+                "k_out_4mom_breit": np.asarray(k_out_breit, dtype=np.float64),
                 "pT_jet_vec": pT_jet_vec.copy(),
                 "hadron_4mom_breit": np.asarray(best_tar_breit, dtype=np.float64),
                 "hadron_pT_vec": pT_hadron_vec.copy(),
@@ -818,7 +809,7 @@ def run_observables_for_label(
                 print("     pT_hadron       =", pT_hadron_vec)
                 print("     pT_remnant      =", pT_remnant_breit)
                 print("     pT_jet_current  =", pT_jet_current)
-                print("     pT_kin          =", pT_kin, "(k_in boosted to Breit, transverse)")
+                print("     pT_kin          =", pT_kin, "(k_in = k_out - q, Breit transverse)")
                 print(f"  2. Jet azimuth: phi_jet = atan2({pT_jet_vec[1]:.6f}, {pT_jet_vec[0]:.6f}) = {phi_jet:.6f} rad")
                 print("  3. Sign check: |pT_jet_current - pT_kin| =", diff_minus)
                 print("                 |pT_jet_current + pT_kin| =", diff_plus)
@@ -872,21 +863,18 @@ def run_observables_for_label(
         print(f"  angle(hadron, remnant) < angle(hadron, jet): {n_h_closer_to_remnant} / {total_compared} = {n_h_closer_to_remnant / total_compared:.4f}")
         print(f"  angle(hadron, jet) < angle(hadron, remnant): {n_h_closer_to_jet} / {total_compared} = {n_h_closer_to_jet / total_compared:.4f}")
 
-    # Sign-consistency summary
-    total_sign = n_jet_eq_kin + n_jet_eq_minus_kin
-    if total_sign > 0:
-        print(f"\n[{label}] Sign-consistency diagnostic:")
-        print(f"  pT_jet_current = pT_kin:        {n_jet_eq_kin} / {processed}")
-        print(f"  pT_jet_current = -pT_kin:     {n_jet_eq_minus_kin} / {processed}")
+    # Outgoing vs incoming transverse (k_out vs k_in) — usually differ unless collinear limit
+    if processed > 0:
+        print(f"\n[{label}] k_out vs k_in transverse (Breit):")
+        print(f"  pT_jet = pT(k_out):   matches pT(k_in) in {n_jet_eq_kin} / {processed} events (tol {sign_check_tol})")
+        print(f"  pT_jet = -pT(k_in):   matches in {n_jet_eq_minus_kin} / {processed} events")
         print(f"  angle(hadron, remnant) < 0.2: {n_angle_hR_near_zero} / {processed}")
         if n_jet_eq_kin == processed:
-            print(f"  CONCLUSION: The current jet vector equals the boosted incoming parton (k_in) transverse momentum.")
+            print("  NOTE: pT(k_out) equals pT(k_in) in all events (unusual unless collinear).")
         elif n_jet_eq_minus_kin == processed:
-            print(f"  CONCLUSION: The current jet vector equals the NEGATIVE of the boosted incoming parton (k_in) transverse momentum.")
-        elif n_jet_eq_kin > 0 or n_jet_eq_minus_kin > 0:
-            print(f"  CONCLUSION: Mixed results; check tolerance or frame.")
-        else:
-            print(f"  CONCLUSION: Neither pT_jet = pT_kin nor pT_jet = -pT_kin within tolerance {sign_check_tol}.")
+            print("  NOTE: pT(k_out) = -pT(k_in) in all events.")
+        elif n_jet_eq_kin == 0 and n_jet_eq_minus_kin == 0:
+            print("  (Expected for generic events: outgoing quark pT differs from incoming parton pT.)")
 
     # Jet azimuth Fourier moments: <cos(phi_jet)>, <sin(phi_jet)>, <cos(2*phi_jet)>, <sin(2*phi_jet)>
     if out_phi_jet:
@@ -953,7 +941,7 @@ def main():
         ax.legend(loc="best", frameon=False)
         ax.tick_params(direction="in")
         plt.tight_layout()
-        out_path = _PROJECT_ROOT / filename
+        out_path = _JH_OUT / filename
         plt.savefig(out_path, format="pdf")
         plt.close(fig)
         print(f"Saved: {out_path.name}")
@@ -987,7 +975,7 @@ INTERPRETATION:
 - If phi_q_lab is flat but phi_q_breit is sharply peaked at 0:
   -> The transform explicitly rotates each event to align q with +x.
 - If phi_jet_breit is also peaked at 0:
-  -> The jet (k_in) lies approximately along +x because k_in ≈ -q (for small x).
+  -> The outgoing quark (k_out) may lie approximately along +x in Breit (kinematics-dependent).
 - The hadron-jet angle phi_{hJ} is therefore measured in an event-by-event
   rotated coordinate system, NOT in a fixed physical azimuth.
 - The non-flat phi_jet distribution is a coordinate artifact, not a physical
@@ -1072,24 +1060,24 @@ INTERPRETATION:
     diff_mag_on_arr = np.asarray(diff_mag_on, dtype=np.float64)
 
     # Save per-event arrays for later inspection
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_angle_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_OFF.npy", angle_off_arr)
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_sum_mag_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_OFF.npy", sum_mag_off_arr)
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_diff_mag_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_OFF.npy", diff_mag_off_arr)
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_angle_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_ON.npy", angle_on_arr)
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_sum_mag_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_ON.npy", sum_mag_on_arr)
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_diff_mag_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_ON.npy", diff_mag_on_arr)
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_event_ids_ISRFSR_OFF.npy", np.asarray(event_ids_off, dtype=np.int64))
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_event_ids_ISRFSR_ON.npy", np.asarray(event_ids_on, dtype=np.int64))
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_angle_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_OFF.npy", angle_off_arr)
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_sum_mag_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_OFF.npy", sum_mag_off_arr)
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_diff_mag_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_OFF.npy", diff_mag_off_arr)
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_angle_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_ON.npy", angle_on_arr)
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_sum_mag_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_ON.npy", sum_mag_on_arr)
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_diff_mag_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_ON.npy", diff_mag_on_arr)
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_event_ids_ISRFSR_OFF.npy", np.asarray(event_ids_off, dtype=np.int64))
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_event_ids_ISRFSR_ON.npy", np.asarray(event_ids_on, dtype=np.int64))
     # Save pT vectors as (N,2) arrays
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_pT_jet_vec_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_OFF.npy", np.array(pT_jet_vec_off))
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_pT_hadron_vec_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_OFF.npy", np.array(pT_hadron_vec_off))
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_pT_jet_vec_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_ON.npy", np.array(pT_jet_vec_on))
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_pT_hadron_vec_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_ON.npy", np.array(pT_hadron_vec_on))
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_pT_jet_vec_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_OFF.npy", np.array(pT_jet_vec_off))
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_pT_hadron_vec_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_OFF.npy", np.array(pT_hadron_vec_off))
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_pT_jet_vec_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_ON.npy", np.array(pT_jet_vec_on))
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_pT_hadron_vec_{HADRON_TAG}_{FRAME_TAG}_ISRFSR_ON.npy", np.array(pT_hadron_vec_on))
     # Save phi_jet (jet azimuthal angle) arrays
     phi_jet_off_arr = np.asarray(phi_jet_off, dtype=np.float64)
     phi_jet_on_arr = np.asarray(phi_jet_on, dtype=np.float64)
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_phi_jet_{FRAME_TAG}_ISRFSR_OFF.npy", phi_jet_off_arr)
-    np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_phi_jet_{FRAME_TAG}_ISRFSR_ON.npy", phi_jet_on_arr)
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_phi_jet_{FRAME_TAG}_ISRFSR_OFF.npy", phi_jet_off_arr)
+    np.save(_JH_OUT / f"{OUTPUT_PREFIX}_phi_jet_{FRAME_TAG}_ISRFSR_ON.npy", phi_jet_on_arr)
 
     # Save first few events' debug info (event_id, pT_jet, pT_hadron, angle, sum_mag, diff_mag) for inspection
     def _pack_debug(debug_list: list[dict]) -> np.ndarray:
@@ -1105,9 +1093,9 @@ INTERPRETATION:
         return np.asarray(rows, dtype=np.float64) if rows else np.zeros((0, 9))
 
     if debug_off:
-        np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_debug_sample_ISRFSR_OFF.npy", _pack_debug(debug_off))
+        np.save(_JH_OUT / f"{OUTPUT_PREFIX}_debug_sample_ISRFSR_OFF.npy", _pack_debug(debug_off))
     if debug_on:
-        np.save(_PROJECT_ROOT / f"{OUTPUT_PREFIX}_debug_sample_ISRFSR_ON.npy", _pack_debug(debug_on))
+        np.save(_JH_OUT / f"{OUTPUT_PREFIX}_debug_sample_ISRFSR_ON.npy", _pack_debug(debug_on))
     print("Saved per-event arrays and debug samples.")
 
     # Histograms: normalized as (1/N) dN/dx so integral over bins * bin_width = 1
@@ -1132,7 +1120,7 @@ INTERPRETATION:
     ax1.legend(loc="best", frameon=False)
     ax1.tick_params(direction="in")
     plt.tight_layout()
-    out_angle_pdf = _PROJECT_ROOT / f"{OUTPUT_PREFIX}_angle_{HADRON_TAG}_{FRAME_TAG}_comparison.pdf"
+    out_angle_pdf = _JH_OUT / f"{OUTPUT_PREFIX}_angle_{HADRON_TAG}_{FRAME_TAG}_comparison.pdf"
     plt.savefig(out_angle_pdf, format="pdf")
     plt.close(fig1)
     print(f"Saved: {out_angle_pdf.name}")
@@ -1153,7 +1141,7 @@ INTERPRETATION:
     ax2.legend(loc="best", frameon=False)
     ax2.tick_params(direction="in")
     plt.tight_layout()
-    out_sum_pdf = _PROJECT_ROOT / f"{OUTPUT_PREFIX}_sum_mag_{HADRON_TAG}_{FRAME_TAG}_comparison.pdf"
+    out_sum_pdf = _JH_OUT / f"{OUTPUT_PREFIX}_sum_mag_{HADRON_TAG}_{FRAME_TAG}_comparison.pdf"
     plt.savefig(out_sum_pdf, format="pdf")
     plt.close(fig2)
     print(f"Saved: {out_sum_pdf.name}")
@@ -1171,7 +1159,7 @@ INTERPRETATION:
     ax3.legend(loc="best", frameon=False)
     ax3.tick_params(direction="in")
     plt.tight_layout()
-    out_diff_pdf = _PROJECT_ROOT / f"{OUTPUT_PREFIX}_diff_mag_{HADRON_TAG}_{FRAME_TAG}_comparison.pdf"
+    out_diff_pdf = _JH_OUT / f"{OUTPUT_PREFIX}_diff_mag_{HADRON_TAG}_{FRAME_TAG}_comparison.pdf"
     plt.savefig(out_diff_pdf, format="pdf")
     plt.close(fig3)
     print(f"Saved: {out_diff_pdf.name}")
@@ -1197,59 +1185,50 @@ INTERPRETATION:
     ax4.legend(loc="best", frameon=False)
     ax4.tick_params(direction="in")
     plt.tight_layout()
-    out_phi_jet_pdf = _PROJECT_ROOT / f"{OUTPUT_PREFIX}_phi_jet_{FRAME_TAG}_comparison.pdf"
+    out_phi_jet_pdf = _JH_OUT / f"{OUTPUT_PREFIX}_phi_jet_{FRAME_TAG}_comparison.pdf"
     plt.savefig(out_phi_jet_pdf, format="pdf")
     plt.close(fig4)
     print(f"Saved: {out_phi_jet_pdf.name}")
 
     # Sanity check: confirm the fix works
     print("\n" + "=" * 70)
-    print("SANITY CHECK: Confirming FIXED jet definition")
+    print("SANITY CHECK: Outgoing-quark jet (k_out) in Breit")
     print("=" * 70)
     mean_pT_jet_off = np.mean([np.linalg.norm(v) for v in pT_jet_vec_off]) if pT_jet_vec_off else 0
     mean_pT_jet_on = np.mean([np.linalg.norm(v) for v in pT_jet_vec_on]) if pT_jet_vec_on else 0
-    print(f"  mean |pT_jet| ISR/FSR OFF: {mean_pT_jet_off:.6f} GeV (should be ~0 with collinear fix)")
-    print(f"  mean |pT_jet| ISR/FSR ON:  {mean_pT_jet_on:.6f} GeV (should be ~0 with collinear fix)")
-    if mean_pT_jet_off < 0.01 and mean_pT_jet_on < 0.01:
-        print("  -> CONFIRMED: Collinear fix applied successfully. Spurious O(2 GeV) effect removed.")
+    print(f"  mean |pT_jet| (from k_out) ISR/FSR OFF: {mean_pT_jet_off:.6f} GeV")
+    print(f"  mean |pT_jet| (from k_out) ISR/FSR ON:  {mean_pT_jet_on:.6f} GeV")
+    if mean_pT_jet_off < 1e-8 and mean_pT_jet_on < 1e-8:
+        print("  -> WARNING: |pT_jet| ~ 0 for all events; check k_out or frame.")
     else:
-        print("  -> WARNING: mean |pT_jet| not near zero. Check the fix.")
+        print("  -> Non-zero |pT_jet| expected for outgoing quark in Breit.")
     print("=" * 70)
     
     # Metadata summary
-    meta_path = _PROJECT_ROOT / f"{OUTPUT_PREFIX}_metadata.txt"
+    meta_path = _JH_OUT / f"{OUTPUT_PREFIX}_metadata.txt"
     with open(meta_path, "w") as f:
-        f.write("Jet–hadron transverse observables (FIXED DEFINITION)\n")
-        f.write("====================================================\n\n")
-        f.write("IMPORTANT FIX:\n")
-        f.write("  The OLD definition k_in = k_out - q was REMOVED because it was UNPHYSICAL.\n")
-        f.write("  The k_out from PYTHIA status=23 is not kinematically consistent with LO DIS,\n")
-        f.write("  resulting in k_in having negative energy and being deeply spacelike (k^2 ~ -200 GeV^2).\n")
-        f.write("  This caused a spurious O(2 GeV) transverse momentum and artificial x-axis locking.\n\n")
-        f.write("  The plots now use the BENCHMARK COLLINEAR DEFINITION:\n")
-        f.write("    k_in_ref = x * P\n")
-        f.write("  where x is Bjorken x and P is the proton 4-vector in the LAB frame.\n")
-        f.write("  This has k^2 = x^2 * m_p^2 (physical, timelike) and positive energy.\n")
-        f.write("  In the Breit frame, k_in_ref has essentially ZERO transverse momentum.\n\n")
+        f.write("Jet–hadron transverse observables (outgoing quark jet)\n")
+        f.write("======================================================\n\n")
+        f.write("Jet definition:\n")
+        f.write("  P_jet^{lab} = k_out (outgoing struck quark from the event record).\n")
+        f.write("  pT_jet is (P_{jet,x}, P_{jet,y}) in the Breit frame after the same boost as the hadron.\n\n")
+        f.write("Remnant / x_L:\n")
+        f.write("  k_in = k_out - q, P_rem = P - k_in (unchanged convention for fragmentation variable).\n\n")
         f.write(f"Hadron: {HADRON_TAG}\n")
         f.write(f"Frame: {FRAME_TAG}\n")
         f.write(f"Angle convention: {ANGLE_CONVENTION} (0 = aligned, pi = back-to-back)\n\n")
-        f.write("Observable 1: angle between pT(collinear parton) and pT(hadron) [rad].\n")
+        f.write("Observable 1: angle between pT(k_out) and pT(hadron) [rad].\n")
         f.write("Observable 2: |pT_jet + pT_h| [GeV] (vector sum, then magnitude).\n")
-        f.write("Observable 3: |pT_jet - pT_h| [GeV] (vector difference, then magnitude).\n\n")
-        f.write("Note: Since pT_jet ~ 0 with the collinear fix:\n")
-        f.write("  - Observable 2 ~ |pT_h|\n")
-        f.write("  - Observable 3 ~ |pT_h|\n")
-        f.write("  - The observables are now dominated by the hadron's transverse momentum.\n")
+        f.write("Observable 3: |pT_jet - pT_h| [GeV] (vector difference, then magnitude).\n")
     print(f"Saved: {meta_path.name}")
     
     # Print output filenames
-    print("\nOutput PDF files (FIXED definition):")
+    print("\nOutput PDF files (jet = k_out):")
     print(f"  - {out_angle_pdf.name}")
     print(f"  - {out_sum_pdf.name}")
     print(f"  - {out_diff_pdf.name}")
     print(f"  - {out_phi_jet_pdf.name}")
-    print("\nDone. Regenerated PDFs use the FIXED collinear benchmark k_in_ref = x * P.")
+    print("\nDone. Jet transverse observables use the outgoing quark k_out in the Breit frame.")
 
 
 if __name__ == "__main__":

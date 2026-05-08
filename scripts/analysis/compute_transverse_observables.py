@@ -15,6 +15,11 @@ if str(_SRC) not in sys.path:
 
 import numpy as np
 
+from diquark.paths import analysis_outputs_dir
+
+_ANALYSIS_DIR = analysis_outputs_dir()
+_ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
+
 from diquark.analyze_events_raw import (
     Qmax_ptrel,
     Qmin_ptrel,
@@ -139,10 +144,10 @@ def main():
     S_Jpi_arr = np.asarray(S_Jpi_list, dtype=np.float64)
     D_Jpi_arr = np.asarray(D_Jpi_list, dtype=np.float64)
 
-    np.save(_PROJECT_ROOT / "S_Rpi_ISRFSR_ON.npy", S_Rpi_arr)
-    np.save(_PROJECT_ROOT / "D_Rpi_ISRFSR_ON.npy", D_Rpi_arr)
-    np.save(_PROJECT_ROOT / "S_Jpi_ISRFSR_ON.npy", S_Jpi_arr)
-    np.save(_PROJECT_ROOT / "D_Jpi_ISRFSR_ON.npy", D_Jpi_arr)
+    np.save(_ANALYSIS_DIR / "S_Rpi_ISRFSR_ON.npy", S_Rpi_arr)
+    np.save(_ANALYSIS_DIR / "D_Rpi_ISRFSR_ON.npy", D_Rpi_arr)
+    np.save(_ANALYSIS_DIR / "S_Jpi_ISRFSR_ON.npy", S_Jpi_arr)
+    np.save(_ANALYSIS_DIR / "D_Jpi_ISRFSR_ON.npy", D_Jpi_arr)
 
     n = len(S_Rpi_list)
     print("\n--- Summary ---")

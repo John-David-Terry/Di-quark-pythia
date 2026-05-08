@@ -15,8 +15,11 @@ dist/
 # Generated data and outputs
 *.npy
 *.pdf
+*.jsonl
 pythia_finalstate_raw/
 four_observables_outputs/
+run_manifests/
+venv/
 /plots/
 /New_plots/
 debug_*.txt
@@ -34,3 +37,16 @@ phi_*_density.npy
 .vscode/
 *.swp
 *.swo
+
+outputs/
+outputs_DELETE_ME/
+Data/
+*.csv
+*.parquet
+*.h5
+*.root
+*.lhe
+*.hepmc
+*.log
+*.tmp
+*.cache

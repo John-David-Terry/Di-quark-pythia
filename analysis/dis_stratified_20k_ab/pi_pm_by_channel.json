@@ -1,0 +1,29 @@
+{
+  "altered_root": "/Users/johnterry/Documents/Projects/Di-quark-pythia/analysis/dis_stratified_20k_ab/altered_100k_parquet",
+  "final_root": "/Users/johnterry/Documents/Projects/Di-quark-pythia/analysis/dis_stratified_20k_ab_reinject/final_state_v1",
+  "events_with_channel_metadata": 9923,
+  "skipped_reinject_not_ok": 0,
+  "skipped_no_particle_rows": 0,
+  "per_channel": {
+    "A": {
+      "n_events": 4963,
+      "n_pi_plus": 10209,
+      "n_pi_minus": 9237,
+      "n_pi_total": 19446,
+      "mean_pi_plus_per_event": 2.0570219625226676,
+      "mean_pi_minus_per_event": 1.8611726778158373,
+      "mean_pi_charge_excess_per_event": 0.19584928470683055,
+      "label": "(ud)->[d]+(uu)+ubar"
+    },
+    "B": {
+      "n_events": 4960,
+      "n_pi_plus": 11283,
+      "n_pi_minus": 6807,
+      "n_pi_total": 18090,
+      "mean_pi_plus_per_event": 2.2747983870967743,
+      "mean_pi_minus_per_event": 1.3723790322580645,
+      "mean_pi_charge_excess_per_event": 0.9024193548387097,
+      "label": "(ud)->[d]+(ud)+dbar"
+    }
+  }
+}
